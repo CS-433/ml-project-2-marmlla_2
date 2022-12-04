@@ -55,16 +55,18 @@ def train(
         inp = torch.from_numpy(np.array(val_x_))
         labs = torch.from_numpy(np.array(val_y_[:, 0]))
         out = model(inp.to(device).float())
-        outputs = out.cpu().detach().numpy()
+        outputs = out.cpu().detach().numpy().reshape(-1)
         targets = labs.numpy().reshape(-1)
         MSE = np.mean((outputs - targets) ** 2)
         val_loss.append(MSE)
 
         if epoch % print_nb == 0:
             print(
-                f"Epoch: {epoch}/{num_epochs_} MSE = [train : {np.mean(train_loss[-print_nb:]): .08f}] , [val: {np.mean(val_loss[-print_nb:]): .08f}]"
+                f"Epoch: {epoch}/{num_epochs_}\nMSE = [train loss mean : {np.mean(train_loss[-print_nb:]): .08f}] , [val loss mean: {np.mean(val_loss[-print_nb:]): .08f}, MSE (last){MSE*100: .05f}%]"
             )
 
+
+        
     return train_loss, val_loss
 
 
@@ -97,7 +99,8 @@ def evaluate(model, x_, y_, device="cpu"):
 def regression_result(targets, outputs):
     Y = targets
     X = outputs
-    X = sm.add_constant(X)
+    X = sm.add_constant(X, has_constant='add')
+    
     model = sm.OLS(Y, X)
     res = model.fit()
     print(res.summary())

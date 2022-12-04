@@ -83,9 +83,9 @@ class GRU_base(nn.Module):
         )
 
         # fully connected 0
-        self.fc0_bn = nn.BatchNorm1d(self.hidden_size + 5)
+        self.fc0_bn = nn.BatchNorm1d(self.hidden_size)
         # self.dropout0 = nn.Dropout(p=0.2)
-        self.fc_0 = nn.Linear(self.hidden_size + 5, out_features_lin)
+        self.fc_0 = nn.Linear(self.hidden_size, out_features_lin)
 
         # fully connected 1
         self.fc1_bn = nn.BatchNorm1d(out_features_lin)
@@ -107,16 +107,17 @@ class GRU_base(nn.Module):
         # nn.init.zeros_(self.fc_2.bias)
 
     def forward(self, x):
-        h_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)  # hidden state
-
+        h_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to('cuda')  # hidden state
         # Propagate input through GRU
         output, hn = self.gru(x, h_0)  # GRU with input, hidden, and internal state
+        
+
 
         hn = hn[-1].view(
             -1, self.hidden_size
         )  # reshaping the data for Dense layer next
 
-        hn = torch.cat((hn, x[:, :, 0]), dim=1)
+        #hn = torch.cat((hn, x[:, :, 0]), dim=1)
 
         out = self.fc_0(self.relu(self.fc0_bn(hn)))
         out = self.fc_1(self.relu(self.fc1_bn(out)))  # self.dropout1(
