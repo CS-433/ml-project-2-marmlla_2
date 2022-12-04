@@ -57,12 +57,13 @@ class GRU_base(nn.Module):
 
     def __init__(
         self,
-        hidden_size=64,
-        num_layers=4,
+        hidden_size=32,
+        num_layers=1,
         input_size=1,
-        out_features_lin=128,
+        out_features_lin=32,
         out_features_end=1,
-        dropout=0.2,
+        dropout=0.05,
+        device= 'cpu'
     ):
         super(GRU_base, self).__init__()
 
@@ -72,6 +73,7 @@ class GRU_base(nn.Module):
         self.out_features_lin = out_features_lin
         self.out_features_end = out_features_end
         self.dropout = dropout
+        self.device= device
 
         # GRU
         self.gru = nn.GRU(
@@ -107,7 +109,7 @@ class GRU_base(nn.Module):
         # nn.init.zeros_(self.fc_2.bias)
 
     def forward(self, x):
-        h_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to('cuda')  # hidden state
+        h_0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size).to(self.device)# hidden state
         # Propagate input through GRU
         output, hn = self.gru(x, h_0)  # GRU with input, hidden, and internal state
         
@@ -131,10 +133,10 @@ class Decoder(nn.Module):
     def __init__(self):
         super(Decoder, self).__init__()
 
-        self.fcd = nn.Linear(5, 16)
+        self.fcd = nn.Linear(7, 16)
         self.bn = nn.BatchNorm1d(16)
         self.fc1 = nn.Linear(16, 8)
-        self.dropout = nn.Dropout(p=0.2)
+        self.dropout = nn.Dropout(p=0.05)
         self.fc2 = nn.Linear(8, 1)
 
         self.relu = nn.ReLU()
@@ -155,31 +157,41 @@ class Decoder(nn.Module):
 
 
 class ExchangeRateNet(nn.Module):
-    def __init__(self):
+    def __init__(self, num_layers=1):
         super(ExchangeRateNet, self).__init__()
+        
+        self.num_layers = num_layers
+        
 
         # regression
-        self.gru_ex_reg = GRU_base()
-        self.gru_infl_CH_reg = GRU_base()
-        self.gru_infl_US_reg = GRU_base()
-        self.gru_interest_CH_reg = GRU_base()
-        self.gru_interest_US_reg = GRU_base()
+        self.gru_general = GRU_base(input_size=5, num_layers=self.num_layers)
+        
+        self.gru_ex_reg = GRU_base( num_layers=self.num_layers)
+        self.gru_SPI_reg = GRU_base( num_layers=self.num_layers)
+        self.gru_SP500_reg = GRU_base( num_layers=self.num_layers)
+        self.gru_bondCH_reg = GRU_base( num_layers=self.num_layers)
+        self.gru_bondUS_reg = GRU_base( num_layers=self.num_layers)
+        
         self.decoder_reg = Decoder()
 
         # trend
+        '''
         self.gru_ex_trend = GRU_base()
         self.gru_infl_CH_trend = GRU_base()
         self.gru_infl_US_trend = GRU_base()
         self.gru_interest_CH_trend = GRU_base()
         self.gru_interest_US_trend = GRU_base()
         self.decoder_trend = Decoder()
+        '''
 
-    def forward(self, inputs):
+    def forward(self, inputs, out):
+        enc_out0_reg = self.gru_general(inputs)
+        
         enc_out1_reg = self.gru_ex_reg(inputs[:, :, 0].unsqueeze(-1))
-        enc_out2_reg = self.gru_ex_reg(inputs[:, :, 1].unsqueeze(-1))
-        enc_out3_reg = self.gru_ex_reg(inputs[:, :, 2].unsqueeze(-1))
-        enc_out4_reg = self.gru_ex_reg(inputs[:, :, 3].unsqueeze(-1))
-        enc_out5_reg = self.gru_ex_reg(inputs[:, :, 4].unsqueeze(-1))
+        enc_out2_reg = self.gru_SPI_reg(inputs[:, :, 1].unsqueeze(-1))
+        enc_out3_reg = self.gru_SP500_reg(inputs[:, :, 2].unsqueeze(-1))
+        enc_out4_reg = self.gru_bondCH_reg(inputs[:, :, 3].unsqueeze(-1))
+        enc_out5_reg = self.gru_bondUS_reg(inputs[:, :, 4].unsqueeze(-1))
         """
         enc_out1_trend = self.gru_ex_reg(inputs[:, 0])
         enc_out2_trend = self.gru_ex_reg(inputs[:, 1, :])
@@ -194,6 +206,10 @@ class ExchangeRateNet(nn.Module):
                 enc_out3_reg,
                 enc_out4_reg,
                 enc_out5_reg,
+                
+                enc_out0_reg, 
+                out
+                
                 # enc_out1_trend,
                 # enc_out2_trend,
                 # enc_out3_trend,
@@ -211,6 +227,7 @@ class ExchangeRateNet(nn.Module):
             enc_out3_reg,
             enc_out4_reg,
             enc_out5_reg,
+            enc_out0_reg, 
             # enc_out1_trend,
             # enc_out2_trend,
             # enc_out3_trend,
@@ -219,3 +236,164 @@ class ExchangeRateNet(nn.Module):
             out
             # out_trend,
         ]
+        
+class auto_encoder(nn.Module): 
+    """Auto encoder  model.
+    _init_:
+        hidden_size: scalar, number of features in the hidden state.
+        num_layers: scalar, number of recurrent layers.
+        input_size: scalar, number of expected features in the input x.
+        out_features_lin: scalar, size of each output sample.
+    """
+    def __init__(
+        self,
+
+        input_size= 1,
+        nb_channel_conv= 16
+    ):
+        super(auto_encoder, self).__init__()
+        
+        self.input_size= input_size
+        self.nb_channel_conv= nb_channel_conv
+        
+        self.relu = nn.ReLU()
+        
+        self.conv1 = nn.Conv1d(self.input_size, self.nb_channel_conv, kernel_size=5)
+        self.conv2 = nn.Conv1d(self.nb_channel_conv, self.nb_channel_conv, kernel_size=5)
+        self.conv3 = nn.Conv1d(self.nb_channel_conv, self.nb_channel_conv, kernel_size=5)
+        self.conv4 = nn.Conv1d(self.nb_channel_conv, self.nb_channel_conv, kernel_size=3)
+        
+        self.conv1_t = nn.ConvTranspose1d(self.nb_channel_conv, self.nb_channel_conv, kernel_size=3)
+        self.conv2_t = nn.ConvTranspose1d(self.nb_channel_conv, self.nb_channel_conv, kernel_size=5)
+        self.conv3_t = nn.ConvTranspose1d(self.nb_channel_conv, self.nb_channel_conv, kernel_size=5)
+        self.conv4_t = nn.ConvTranspose1d(self.nb_channel_conv, self.input_size, kernel_size=6)
+        
+    def forward(self, x):
+    
+
+        x = self.relu(self.conv1(x)) 
+        x = self.relu(self.conv2(x)) 
+        x = self.relu(self.conv3(x)) 
+        x = self.relu(self.conv4(x))
+        
+
+        x = self.relu(self.conv1_t(x)) 
+        x  = self.relu(self.conv2_t(x)) 
+        x  = self.relu(self.conv3_t(x))
+        
+        dec_out = self.conv4_t(x) 
+ 
+        return dec_out
+        
+
+        
+
+
+     
+class auto_encoder_GRU(nn.Module):
+    """Auto encoder GRU model.
+    _init_:
+        hidden_size: scalar, number of features in the hidden state.
+        num_layers: scalar, number of recurrent layers.
+        input_size: scalar, number of expected features in the input x.
+        out_features_lin: scalar, size of each output sample.
+    """
+
+    def __init__(
+        self,
+        hidden_size=50,
+        num_layers_gru=1,
+        input_size=1,
+        seq_len=15,
+        nb_channel_conv= 16,
+        out_features_lin=50,
+        out_features_end=1,
+        dropout=0.0,
+        device="cuda"
+    ):
+        super(auto_encoder_GRU, self).__init__()
+
+        self.input_size = input_size
+        self.seq_len = seq_len
+        self.hidden_size = hidden_size
+        self.num_layers_gru = num_layers_gru
+        self.nb_channel_conv = nb_channel_conv
+        self.out_features_lin = out_features_lin
+        self.out_features_end = out_features_end
+        self.dropout = dropout
+        self.device = device
+        
+        self.relu = nn.ReLU()
+        
+        self.conv1 = nn.Conv1d(self.input_size, self.nb_channel_conv, kernel_size=2) 
+        '''
+        self.conv2 = nn.Conv1d(self.nb_channel_conv, self.nb_channel_conv, kernel_size=5)
+        self.conv3 = nn.Conv1d(self.nb_channel_conv, self.nb_channel_conv, kernel_size=5)
+        self.conv4 = nn.Conv1d(self.nb_channel_conv, self.nb_channel_conv, kernel_size=3)
+        
+        
+        self.conv1_t = nn.ConvTranspose1d(self.nb_channel_conv, self.nb_channel_conv, kernel_size=3) 
+        self.conv2_t = nn.ConvTranspose1d(self.nb_channel_conv, self.nb_channel_conv, kernel_size=5)
+        self.conv3_t = nn.ConvTranspose1d(self.nb_channel_conv, self.nb_channel_conv, kernel_size=5)
+        '''
+        self.conv4_t = nn.ConvTranspose1d(self.nb_channel_conv, self.input_size, kernel_size=2)
+
+
+        # GRU
+        self.gru = nn.GRU(
+            input_size=self.input_size,
+            hidden_size=self.hidden_size,
+            num_layers=self.num_layers_gru,
+            batch_first=True,
+            dropout=self.dropout,
+        )
+
+        # fully connected 0
+        self.fc0_bn = nn.BatchNorm1d(self.hidden_size)
+        # self.dropout0 = nn.Dropout(p=0.2)
+        self.fc_0 = nn.Linear(self.hidden_size, out_features_lin)
+
+        # fully connected 1 (last)
+        self.fc1_bn = nn.BatchNorm1d(out_features_lin)
+        # self.dropout1 = nn.Dropout(p=0.2)
+        self.fc_1 = nn.Linear(out_features_lin, out_features_end)
+
+
+    def forward(self, x):
+    
+        
+        x = self.relu(self.conv1(x)) 
+        '''
+        x = self.relu(self.conv2(x)) 
+        x = self.relu(self.conv3(x)) 
+        x = self.relu(self.conv4(x))
+
+        
+        x = self.relu(self.conv1_t(x))
+        x = self.relu(self.conv2_t(x))
+        
+        x = self.relu(self.conv3_t(x))
+        '''
+        dec_out  = self.relu(self.conv4_t(x))
+        
+
+        x = dec_out.reshape(-1,self.seq_len,self.input_size)
+       
+        
+        h_0 = torch.zeros(self.num_layers_gru, x.size(0), self.hidden_size).to(self.device)  # hidden state
+        # Propagate input through GRU
+        output, hn = self.gru(x, h_0)  # GRU with input, hidden, and internal state
+        
+
+
+        hn = hn[-1].view(
+            -1, self.hidden_size
+        )  # reshaping the data for Dense layer next
+
+        out = self.fc_0(self.relu(self.fc0_bn(hn)))
+        out = self.fc_1(self.relu(self.fc1_bn(out)))  # self.dropout1(
+
+
+
+        return out, dec_out
+
