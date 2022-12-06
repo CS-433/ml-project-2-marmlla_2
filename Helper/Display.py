@@ -137,24 +137,25 @@ def plot_result_ret(outputs, targets, nb=30):
     plt.plot()
 
 
-def plot_result_price(outputs, targets, nb=30):
+def plot_result_price(outputs, targets, range_=range(0, 30)):
+
     plt.figure(figsize=(14, 10))
 
     plt.subplot(3, 1, 1)
-    plt.plot(outputs[-nb:], "-o", color="g", label="Predicted ")
+    plt.plot(outputs[range_], "-o", color="g", label="Predicted ")
     plt.grid()
     plt.ylabel("USD/CHF")
     plt.legend()
 
     plt.subplot(3, 1, 2)
-    plt.plot(targets[-nb:], "-o", color="k", label="Actual")
+    plt.plot(targets[range_], "-o", color="k", label="Actual")
     plt.grid()
     plt.ylabel("USD/CHF")
     plt.legend()
 
     plt.subplot(3, 1, 3)
-    plt.plot(targets[-nb:], "-o", color="k", label="Actual")
-    plt.plot(outputs[-nb:], "-o", color="g", label="Predicted ")
+    plt.plot(targets[range_], "-o", color="k", label="Actual")
+    plt.plot(outputs[range_], "-o", color="g", label="Predicted ")
 
     plt.ylabel("USD/CHF")
     plt.grid()

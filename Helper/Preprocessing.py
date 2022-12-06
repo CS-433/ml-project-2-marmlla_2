@@ -12,7 +12,13 @@ import tqdm
 
 
 def generate_dataset(
-    data, lookback_=10, norm_=False, fraction_val_=0.2, fraction_test_=0.2, verbose=1
+    data,
+    lookback_=10,
+    norm_=False,
+    trend_=False,
+    fraction_val_=0.2,
+    fraction_test_=0.2,
+    verbose=1,
 ):
     """Generate dataset in order to train your network.
        return the train, validation, test data.
@@ -43,7 +49,6 @@ def generate_dataset(
     val_y_list = []
     test_y_list = []
 
-    norm = []
     for df_ in data:
         train_x = []
         train_y = []
@@ -55,23 +60,18 @@ def generate_dataset(
 
         for i in range(lookback_, len(df_)):
             inputs[i - lookback_] = df_.iloc[i - lookback_ : i].values
-            labels[i - lookback_, 0] = df_.iloc[i]
-            # labels[i - lookback_, 1] = 0 if df_.iloc[i + 2] <= df_.iloc[i - 1] else 1
+            if trend_:
+                labels[i - lookback_, 0] = (
+                    0 if df_.iloc[i : i + 2].mean() <= df_.iloc[i - 1] else 1
+                )
+            else:
+                labels[i - lookback_, 0] = df_.iloc[i]
 
         # Split data into train and test
         train_x = inputs[:-nb_test]
         train_y = labels[:-nb_test]
         test_x = inputs[-nb_test:]
         test_y = labels[-nb_test:]
-
-        mm = MinMaxScaler()
-        ss = StandardScaler()
-        if norm_:
-            train_x = mm.fit_transform(train_x)
-            train_y = ss.fit_transform(train_y)
-            test_x = mm.transform(test_x)
-            test_y = ss.transform(test_y)
-            norm.append((mm, ss))
 
         # reshape data in the correct shape: N (nb sample), T (time), D (feature)
         train_x = train_x.reshape(-1, lookback_, 1)
@@ -95,6 +95,21 @@ def generate_dataset(
     val_y_fin = np.concatenate(val_y_list, axis=1)
     test_y_fin = np.concatenate(test_y_list, axis=1)
 
+    norm = []
+    if norm_:
+        train_x_fin, train_y_fin, min_train, max_train = min_max_norm(
+            train_x_fin, train_y_fin, norm_output_=not trend_
+        )
+        norm.append((min_train, max_train))
+        val_x_fin, val_y_fin, min_val, max_val = min_max_norm(
+            val_x_fin, val_y_fin, norm_output_=not trend_
+        )
+        norm.append((min_val, max_val))
+        test_x_fin, test_y_fin, min_test, max_test = min_max_norm(
+            test_x_fin, test_y_fin, norm_output_=not trend_
+        )
+        norm.append((min_test, max_test))
+
     if verbose == 1:
         print(
             f"Shape: \
@@ -104,6 +119,45 @@ def generate_dataset(
         )
 
     return train_x_fin, val_x_fin, test_x_fin, train_y_fin, val_y_fin, test_y_fin, norm
+
+
+def min_max_norm(x_, y_, norm_output_=True):
+
+    seq_len = x_.shape[1]
+
+    y_ = y_.copy()
+    min = x_.min(axis=1)
+    max = x_.max(axis=1)
+    print((min == max).sum())
+
+    d = []
+
+    for i in range(x_.shape[2]):
+
+        res = (x_[:, :, i] - min[:, i].reshape(-1, 1)) / (
+            max[:, i].reshape(-1, 1) - min[:, i].reshape(-1, 1)
+        )
+        d.append(res.reshape(-1, seq_len, 1))
+
+        if norm_output_:
+            y_[:, i] = (
+                (y_[:, i].reshape(-1, 1) - min[:, i].reshape(-1, 1))
+                / (max[:, i].reshape(-1, 1) - min[:, i].reshape(-1, 1))
+            ).reshape(
+                -1,
+            )
+
+    return np.concatenate(d, axis=2), y_, min, max
+
+
+def min_max_norm_inverse(x_, tuple_min_max_):
+
+    min = tuple_min_max_[0]
+    max = tuple_min_max_[1]
+
+    inv = x_ * (max[:, 0] - min[:, 0]) + min[:, 0]
+
+    return inv
 
 
 def get_log_ret(df_):
