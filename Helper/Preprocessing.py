@@ -120,9 +120,9 @@ def generate_dataset(
     
     # Reshape to account for labels of size (3,1)
     if trend_:
-        train_y_fin = np.reshape(train_y_fin, (len(train_y_fin),3,-1))
-        val_y_fin = np.reshape(val_y_fin, (len(val_y_fin),3,-1))
-        test_y_fin = np.reshape(test_y_fin, (len(test_y_fin),3,-1))
+        train_y_fin = np.reshape(train_y_fin, (len(train_y_fin),3,-1), order = 'F')
+        val_y_fin = np.reshape(val_y_fin, (len(val_y_fin),3,-1), order = 'F')
+        test_y_fin = np.reshape(test_y_fin, (len(test_y_fin),3,-1), order = 'F')
 
     norm = []
     if norm_:
