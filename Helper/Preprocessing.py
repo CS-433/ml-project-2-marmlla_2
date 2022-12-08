@@ -16,6 +16,7 @@ def generate_dataset(
     lookback_=10,
     norm_=False,
     trend_=False,
+    span_trend_=1,
     fraction_val_=0.2,
     fraction_test_=0.2,
     verbose=1,
@@ -58,11 +59,13 @@ def generate_dataset(
         inputs = np.zeros((len(df_) - lookback_, lookback_))
         labels = np.zeros((len(df_) - lookback_, 1))
 
-        for i in range(lookback_, len(df_)):
+        for i in range(lookback_, len(df_) - span_trend_):
+
             inputs[i - lookback_] = df_.iloc[i - lookback_ : i].values
+
             if trend_:
                 labels[i - lookback_, 0] = (
-                    0 if df_.iloc[i : i + 2].mean() <= df_.iloc[i - 1] else 1
+                    0 if df_.iloc[i : i + span_trend_].mean() <= df_.iloc[i - 1] else 1
                 )
             else:
                 labels[i - lookback_, 0] = df_.iloc[i]
