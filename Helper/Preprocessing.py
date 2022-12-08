@@ -20,6 +20,7 @@ def generate_dataset(
     fraction_val_=0.2,
     fraction_test_=0.2,
     verbose=1,
+    tresh=0.005
 ):
     """Generate dataset in order to train your network.
        return the train, validation, test data.
@@ -57,19 +58,36 @@ def generate_dataset(
         test_y = []
         # generate sliding window
         inputs = np.zeros((len(df_) - lookback_, lookback_))
-        labels = np.zeros((len(df_) - lookback_, 1))
+        if trend_:
+            labels = []
+        else:
+            labels = np.zeros((len(df_) - lookback_, 1))
 
         for i in range(lookback_, len(df_) - span_trend_):
 
             inputs[i - lookback_] = df_.iloc[i - lookback_ : i].values
 
             if trend_:
-                labels[i - lookback_, 0] = (
-                    0 if df_.iloc[i : i + span_trend_].mean() <= df_.iloc[i - 1] else 1
-                )
+                # labels[i - lookback_, 0] = (
+                #     0 if df_.iloc[i : i + span_trend_].mean() <= df_.iloc[i - 1] else 1
+                # )
+                
+                lab = np.zeros((3,))
+                if df_.iloc[i : i + span_trend_].mean() <= df_.iloc[i - 1]*(1-tresh):
+                    lab[0] = 1
+                elif df_.iloc[i : i + span_trend_].mean() >= df_.iloc[i - 1]*(1+tresh):
+                    lab[2] = 1
+                else:
+                    lab[1] = 1
+                    
+                labels.append(lab)
+                
             else:
                 labels[i - lookback_, 0] = df_.iloc[i]
-
+        
+        if trend_:
+            inputs = inputs[:-span_trend_]
+            
         # Split data into train and test
         train_x = inputs[:-nb_test]
         train_y = labels[:-nb_test]
@@ -83,13 +101,15 @@ def generate_dataset(
         train_x, val_x, train_y, val_y = train_test_split(
             train_x, train_y, test_size=fraction_val_, shuffle=False
         )  # random_state=0
-
+        
         train_x_list.append(train_x)
         val_x_list.append(val_x)
         test_x_list.append(test_x)
         train_y_list.append(train_y)
         val_y_list.append(val_y)
         test_y_list.append(test_y)
+        
+        
 
     train_x_fin = np.concatenate(train_x_list, axis=2)
     val_x_fin = np.concatenate(val_x_list, axis=2)
@@ -97,6 +117,12 @@ def generate_dataset(
     train_y_fin = np.concatenate(train_y_list, axis=1)
     val_y_fin = np.concatenate(val_y_list, axis=1)
     test_y_fin = np.concatenate(test_y_list, axis=1)
+    
+    # Reshape to account for labels of size (3,1)
+    if trend_:
+        train_y_fin = np.reshape(train_y_fin, (len(train_y_fin),3,-1))
+        val_y_fin = np.reshape(val_y_fin, (len(val_y_fin),3,-1))
+        test_y_fin = np.reshape(test_y_fin, (len(test_y_fin),3,-1))
 
     norm = []
     if norm_:
