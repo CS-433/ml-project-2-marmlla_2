@@ -99,7 +99,7 @@ class GRU_base(nn.Module):
         # self.dropout2 = nn.Dropout(p=0.2)
         # self.fc_2 = nn.Linear(out_features_lin, out_features_end)
 
-        self.relu = nn.ReLU()
+        self.relu = nn.Sigmoid()  # nn.ReLU()
 
         # nn.init.xavier_uniform_(self.fc_0.weight)
         # nn.init.zeros_(self.fc_0.bias)

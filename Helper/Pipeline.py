@@ -71,9 +71,6 @@ def train(
 def evaluate(model, x_, y_, criterion_=nn.MSELoss(), device="cpu", verbose=1):
     model.eval()
 
-    outputs = []
-    targets = []
-
     inp = torch.from_numpy(x_)
     labs = torch.from_numpy(y_)
 
@@ -106,18 +103,20 @@ def evaluate_trend(model, x_, y_, device="cpu", verbose=1):
     model.eval()
 
     inp = torch.from_numpy(x_)
-    labs = torch.from_numpy(y_)
+    targets = torch.from_numpy(y_)
 
-    out = model(inp.float().to(device))
-    outputs = nn.Sigmoid()(out).cpu().detach().numpy().reshape(-1).round()
-    targets = labs.numpy().reshape(-1)
+    outputs = model(inp.float().to(device))
+    # _, outputs = torch.max(outputs, 1)
+    outputs = nn.Sigmoid()(outputs).cpu().detach().numpy().reshape(-1).round()
+    # _, targets = torch.max(targets, 1)
+    targets = targets.cpu().detach().numpy().reshape(-1)
 
     ACC = np.mean((outputs == targets))
 
     if verbose == 1:
         print(f"ACC: {ACC: 0.05f}")
         print(
-            f"nb 0 = {len(outputs[outputs == 0.])}; nb 1 = {len(outputs[outputs == 1.])}"
+            f"nb 0 = {len(outputs[outputs == 0.])}; nb 1 = {len(outputs[outputs == 1.])}  nb 2 = {len(outputs[outputs == 2.])}"
         )
     return outputs, targets, ACC
 
