@@ -24,11 +24,12 @@ def train(
     criterion_=nn.MSELoss(),
     device_="cpu",
     verbose=1,
+    gru_trend=True,
 ):
 
     train_data = TensorDataset(torch.from_numpy(train_x_), torch.from_numpy(train_y_))
     train_loader = DataLoader(
-        train_data, shuffle=True, batch_size=batch_size_, drop_last=True
+        train_data, shuffle=False, batch_size=batch_size_, drop_last=False
     )
 
     device = device_
@@ -60,6 +61,14 @@ def train(
         )
         val_loss.append(MSE)
 
+        # hearly stopping
+        if len(val_loss) > 100 and np.mean(val_loss[-50:]) < np.mean(val_loss[-25:]):
+            print(np.mean(val_loss[-50:]), "<", np.mean(val_loss[-25:]))
+            print(
+                f"Epoch: {epoch}/{num_epochs_}\nMSE = [train loss mean : {np.mean(train_loss[-print_nb:]): .08f}] , [val loss mean: {np.mean(val_loss[-print_nb:]): .08f}, MSE (last){MSE*100: .05f}%]"
+            )
+            return train_loss, val_loss
+
         if epoch % print_nb == 0 and verbose == 1:
             print(
                 f"Epoch: {epoch}/{num_epochs_}\nMSE = [train loss mean : {np.mean(train_loss[-print_nb:]): .08f}] , [val loss mean: {np.mean(val_loss[-print_nb:]): .08f}, MSE (last){MSE*100: .05f}%]"
@@ -68,13 +77,175 @@ def train(
     return train_loss, val_loss
 
 
-def evaluate(model, x_, y_, criterion_=nn.MSELoss(), device="cpu", verbose=1):
+def train_regularized(
+    model,
+    train_x_,
+    train_y_,
+    val_x_,
+    val_y_,
+    batch_size_=256,
+    num_epochs_=1000,
+    lr_=0.0001,
+    criterion_=nn.MSELoss(reduction="sum"),
+    lambda_=0.01,
+    device_="cpu",
+    verbose=1,
+):
+
+    train_data = TensorDataset(
+        torch.from_numpy(train_x_[1:]),
+        torch.from_numpy(train_y_[1:]),
+        torch.from_numpy(train_y_[:-1]),
+    )
+    train_loader = DataLoader(
+        train_data, shuffle=True, batch_size=batch_size_, drop_last=False
+    )
+
+    device = device_
+    print_nb = int(num_epochs_ / 5)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr_)
+
+    train_loss = []
+    val_loss = []
+
+    for epoch in tqdm.tqdm(range(1, num_epochs_ + 1)):
+
+        avg_loss = 0.0
+        model.train()
+        for x, label, label_prev in train_loader:
+
+            outputs = model(x.to(device).float())
+            optimizer.zero_grad()
+
+            loss = criterion_(outputs, label.to(device).float()) + lambda_ * torch.sum(
+                ((label - label_prev) * (label - outputs)) ** 2
+            )
+            avg_loss += loss.item() / len(x)
+            loss.backward()
+            optimizer.step()
+
+        train_loss.append(avg_loss / (len(train_loader)))
+
+        _, _, MSE = evaluate(
+            model, val_x_, val_y_, criterion_=criterion_, device=device, verbose=0
+        )
+        val_loss.append(MSE / len(val_x_))
+
+        # hearly stopping
+        if len(val_loss) > 100 and np.mean(val_loss[-50:]) < np.mean(val_loss[-25:]):
+            print(np.mean(val_loss[-50:]), "<", np.mean(val_loss[-25:]))
+            print(
+                f"Epoch: {epoch}/{num_epochs_}\nMSE = [train loss mean : {np.mean(train_loss[-print_nb:]): .08f}] , [val loss mean: {np.mean(val_loss[-print_nb:]): .08f}, MSE (last){MSE*100: .05f}%]"
+            )
+            return train_loss, val_loss
+
+        if epoch % print_nb == 0 and verbose == 1:
+            print(
+                f"Epoch: {epoch}/{num_epochs_}\nMSE = [train loss mean : {np.mean(train_loss[-print_nb:]): .08f}] , [val loss mean: {np.mean(val_loss[-print_nb:]): .08f}, MSE (last){MSE*100: .05f}%]"
+            )
+
+    return train_loss, val_loss
+
+
+def train_with_trend(
+    model,
+    train_x_,
+    train_y_,
+    train_x_trend_,
+    val_x_,
+    val_y_,
+    val_x_trend_,
+    batch_size_=256,
+    num_epochs_=1000,
+    lr_=0.0001,
+    criterion_=nn.MSELoss(reduction="sum"),
+    device_="cpu",
+    verbose=1,
+    gru_trend=True,
+    lambda_=0.01,
+):
+
+    train_data = TensorDataset(
+        torch.from_numpy(train_x_[1:]),
+        torch.from_numpy(train_x_trend_[1:]),
+        torch.from_numpy(train_y_[1:]),
+        torch.from_numpy(train_y_[:-1]),
+    )
+
+    train_loader = DataLoader(
+        train_data, shuffle=False, batch_size=batch_size_, drop_last=False
+    )
+
+    device = device_
+    print_nb = 2  # int(num_epochs_ / 5)
+
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr_)
+
+    train_loss = []
+    val_loss = []
+
+    for epoch in tqdm.tqdm(range(1, num_epochs_ + 1)):
+
+        avg_loss = 0.0
+        model.train()
+        for x, x_trend, label, label_prev in train_loader:
+
+            outputs = model(x.to(device).float(), x_trend.to(device).float())
+            optimizer.zero_grad()
+
+            label = label.to(device).float()
+            label_prev = label_prev.to(device).float()
+
+            loss = criterion_(outputs, label.to(device).float()) + lambda_ * torch.sum(
+                ((label - label_prev) * (label - outputs)) ** 2
+            )
+            avg_loss += loss.item()
+            loss.backward()
+            optimizer.step()
+
+        train_loss.append(avg_loss / (len(train_loader)))
+
+        _, _, MSE = evaluate(
+            model,
+            val_x_,
+            val_y_,
+            criterion_=criterion_,
+            device=device,
+            verbose=0,
+            x_trend_=val_x_trend_,
+        )
+        val_loss.append(MSE)
+
+        if len(val_loss) > 20 and np.mean(val_loss[-15:]) < np.mean(val_loss[-5:]):
+            print(np.mean(val_loss[-15:]), "<", np.mean(val_loss[-5:]))
+            print(
+                f"Epoch: {epoch}/{num_epochs_}\nMSE = [train loss mean : {np.mean(train_loss[-print_nb:]): .08f}] , [val loss mean: {np.mean(val_loss[-print_nb:]): .08f}, MSE (last){MSE*100: .05f}%]"
+            )
+            return train_loss, val_loss
+
+        if epoch % print_nb == 0 and verbose == 1:
+            print(
+                f"Epoch: {epoch}/{num_epochs_}\nMSE = [train loss mean : {np.mean(train_loss[-print_nb:]): .08f}] , [val loss mean: {np.mean(val_loss[-print_nb:]): .08f}, MSE (last){MSE*100: .05f}%]"
+            )
+
+    return train_loss, val_loss
+
+
+def evaluate(
+    model, x_, y_, criterion_=nn.MSELoss(), device="cpu", verbose=0, x_trend_=[]
+):
+
     model.eval()
 
     inp = torch.from_numpy(x_)
     labs = torch.from_numpy(y_)
 
-    out = model(inp.to(device).float())
+    if len(x_trend_) > 0:
+        inp2 = torch.from_numpy(x_trend_)
+        out = model(inp.to(device).float(), inp2.to(device).float())
+    else:
+        out = model(inp.to(device).float())
 
     MSE = criterion_(out, labs.to(device).float()).item()
 
@@ -88,7 +259,7 @@ def evaluate(model, x_, y_, criterion_=nn.MSELoss(), device="cpu", verbose=1):
 
 def direction_accuracy(outputs, targets):
     out_dir = [
-        1 if outputs[i] >= outputs[i - 1] else -1 for i in range(1, len(outputs))
+        1 if outputs[i] >= targets[i - 1] else -1 for i in range(1, len(outputs))
     ]
     tar_dir = [
         1 if targets[i] >= targets[i - 1] else -1 for i in range(1, len(targets))
@@ -98,7 +269,122 @@ def direction_accuracy(outputs, targets):
     return np.sum(res[res > 0]) / len(res)
 
 
-def evaluate_trend(model, x_, y_, device="cpu", verbose=1):
+def evauate_strategy(
+    prices, pred, start=300, end=700, tax=0.9985, verbose=0, plot=False
+):
+    S = prices[start:end]
+    pred_S = pred[start:end]
+
+    time = np.arange(len(S))
+
+    buy = []
+    buy_t = []
+    sell = []
+    sell_t = []
+
+    CHF = 1
+    portfolio_list = []
+    USD = 0
+    tax = 0.9985
+    trade = False
+
+    for i in range(len(S) - 1):
+
+        if pred_S[i + 1] > S[i]:
+            if trade == False:
+
+                CHF = CHF - USD * S[i] - (1 - tax) * USD * S[i]
+                USD = 0
+                if verbose == 1:
+                    print(
+                        "gain = ", ((USD * tax / S[i]) - 1) * 100, "% [ TIME: ", i, " ]"
+                    )
+                    print("Portfolio value = ", CHF + USD * S[i])
+                    print("-- -- -- -- -- -- -- -- -- -- -- -- -- -- ")
+
+                USD += 1 * tax / S[i]
+                CHF -= 1
+                trade = True
+                if verbose == 1:
+                    print("LONG 1 [price = ", S[i], "] [ time: ", i, " ]")
+
+            buy.append(S[i])
+            buy_t.append(i)
+            portfolio_list.append(CHF + USD * S[i])
+
+        else:
+            if trade == True:
+
+                CHF += USD * S[i] * tax
+                USD = 0
+                if verbose == 1:
+                    print(
+                        "gain = ",
+                        ((USD * S[i] * tax) - 1) * 100,
+                        "%",
+                        "[ TIME: ",
+                        i,
+                        " ]",
+                    )
+                    print("Portfolio value = ", CHF + USD * S[i])
+                    print("-- -- -- -- -- -- -- -- -- -- -- -- -- -- ")
+
+                CHF += 1 * tax
+                USD += 1 / S[i]
+
+                trade = False
+                if verbose == 1:
+                    print("SHORT 1 [price = ", S[i], "] [ time: ", i, " ]")
+
+            sell.append(S[i])
+            sell_t.append(i)
+
+            portfolio_list.append(CHF - USD * S[i])
+
+    portfolio_list.append(portfolio_list[-1])
+    if plot:
+
+        plt.figure(figsize=(25, 15))
+
+        plt.subplot(2, 1, 1)
+        plt.plot(
+            buy_t,
+            buy,
+            marker="X",
+            markersize=10,
+            linestyle="None",
+            color="green",
+            label="buy",
+        )
+        plt.plot(
+            sell_t,
+            sell,
+            marker="X",
+            markersize=10,
+            linestyle="None",
+            color="red",
+            label="sell",
+        )
+
+        plt.plot(time, S, ".-", label="open price")
+        plt.plot(time, pred_S, ".-", label="open price predicted")
+        plt.grid(True)
+        plt.legend(fontsize=20)
+
+        plt.subplot(2, 1, 2)
+        plt.plot(time, portfolio_list, "o-", label="portfolio")
+        plt.grid(True)
+        plt.legend(fontsize=20)
+
+        plt.xlabel("Time", fontsize=20)
+        plt.show()
+
+    p = np.array(portfolio_list)
+    average_ret = np.mean((p[1:] / p[:-1] - 1)) * 100
+    return average_ret
+
+
+def evaluate_trend(model, x_, y_, device="cpu", verbose=0):
 
     model.eval()
 
@@ -106,19 +392,142 @@ def evaluate_trend(model, x_, y_, device="cpu", verbose=1):
     targets = torch.from_numpy(y_)
 
     outputs = model(inp.float().to(device))
+
     # _, outputs = torch.max(outputs, 1)
     outputs = nn.Sigmoid()(outputs).cpu().detach().numpy().reshape(-1).round()
     # _, targets = torch.max(targets, 1)
-    targets = targets.cpu().detach().numpy().reshape(-1)
+
+    targets = (
+        targets.cpu()
+        .detach()
+        .numpy()
+        .reshape(
+            -1,
+        )
+    )
 
     ACC = np.mean((outputs == targets))
 
     if verbose == 1:
         print(f"ACC: {ACC: 0.05f}")
         print(
-            f"nb 0 = {len(outputs[outputs == 0.])}; nb 1 = {len(outputs[outputs == 1.])}  nb 2 = {len(outputs[outputs == 2.])}"
+            f"nb 0 = {len(outputs[outputs == 0.])}; nb 1 = {len(outputs[outputs == 1.])};"
         )
     return outputs, targets, ACC
+
+
+def evauate_strategy_trend(
+    prices, pred, start=300, end=700, tax=0.9985, verbose=0, plot=False
+):
+    S = prices[start:end]
+    pred_S = pred[start:end]
+
+    time = np.arange(len(S))
+
+    buy = []
+    buy_t = []
+    sell = []
+    sell_t = []
+
+    CHF = 1
+    portfolio_list = []
+    USD = 0
+    tax = 0.9985
+    trade = False
+
+    for i in range(len(S) - 1):
+
+        if pred_S[i] == 1:
+            if trade == False:
+
+                CHF = CHF - USD * S[i] - (1 - tax) * USD * S[i]
+                USD = 0
+                if verbose == 1:
+                    print(
+                        "gain = ", ((USD * tax / S[i]) - 1) * 100, "% [ TIME: ", i, " ]"
+                    )
+                    print("Portfolio value = ", CHF + USD * S[i])
+                    print("-- -- -- -- -- -- -- -- -- -- -- -- -- -- ")
+
+                USD += 1 * tax / S[i]
+                CHF -= 1
+                trade = True
+                if verbose == 1:
+                    print("LONG 1 [price = ", S[i], "] [ time: ", i, " ]")
+
+            buy.append(S[i])
+            buy_t.append(i)
+            portfolio_list.append(CHF + USD * S[i])
+
+        else:
+            if trade == True:
+
+                CHF += USD * S[i] * tax
+                USD = 0
+                if verbose == 1:
+                    print(
+                        "gain = ",
+                        ((USD * S[i] * tax) - 1) * 100,
+                        "%",
+                        "[ TIME: ",
+                        i,
+                        " ]",
+                    )
+                    print("Portfolio value = ", CHF + USD * S[i])
+                    print("-- -- -- -- -- -- -- -- -- -- -- -- -- -- ")
+
+                CHF += 1 * tax
+                USD += 1 / S[i]
+
+                trade = False
+                if verbose == 1:
+                    print("SHORT 1 [price = ", S[i], "] [ time: ", i, " ]")
+
+            sell.append(S[i])
+            sell_t.append(i)
+
+            portfolio_list.append(CHF - USD * S[i])
+
+    portfolio_list.append(portfolio_list[-1])
+    if plot:
+
+        plt.figure(figsize=(25, 15))
+
+        plt.subplot(2, 1, 1)
+        plt.plot(
+            buy_t,
+            buy,
+            marker="X",
+            markersize=10,
+            linestyle="None",
+            color="green",
+            label="buy",
+        )
+        plt.plot(
+            sell_t,
+            sell,
+            marker="X",
+            markersize=10,
+            linestyle="None",
+            color="red",
+            label="sell",
+        )
+
+        plt.plot(time, S, ".-", label="open price")
+        plt.grid(True)
+        plt.legend(fontsize=20)
+
+        plt.subplot(2, 1, 2)
+        plt.plot(time, portfolio_list, "o-", label="portfolio")
+        plt.grid(True)
+        plt.legend(fontsize=20)
+
+        plt.xlabel("Time", fontsize=20)
+        plt.show()
+
+    p = np.array(portfolio_list)
+    average_ret = np.mean((p[1:] / p[:-1] - 1)) * 100
+    return average_ret
 
 
 def train_aux(
@@ -226,380 +635,11 @@ def train_aux(
     return train_loss, val_loss, aux_loss, aux_loss_val
 
 
-def train_trend(
-    model,
-    train_x_,
-    train_y_,
-    val_x_,
-    val_y_,
-    batch_size_=256,
-    num_epochs_=1000,
-    lr_=0.0001,
-    device_="cpu",
-):
-
-    train_data = TensorDataset(torch.from_numpy(train_x_), torch.from_numpy(train_y_))
-    train_loader = DataLoader(
-        train_data, shuffle=True, batch_size=batch_size_, drop_last=True
-    )
-
-    device = device_
-    print_nb = int(num_epochs_ / 5)
-    buff = train_y_[:, 0]
-
-    positive_weight = torch.tensor(
-        len(buff[buff == 0.0]) / len(buff[buff == 1.0])
-    ).float()  # .cuda()
-    criterion = nn.BCEWithLogitsLoss(pos_weight=positive_weight)
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr_)
-
-    train_loss = []
-    val_loss = []
-
-    for epoch in tqdm.tqdm(range(1, num_epochs_ + 1)):
-
-        avg_loss = 0.0
-        model.train()
-        for x, label in train_loader:
-            outputs = model(x.to(device).float())
-            optimizer.zero_grad()
-            loss = criterion(outputs, label.to(device).float()[:, 0].unsqueeze(1))
-            avg_loss += loss.item()
-            loss.backward()
-            optimizer.step()
-        train_loss.append(avg_loss / (len(train_loader)))
-
-        model.eval()
-        inp = torch.from_numpy(np.array(val_x_))
-        labs = torch.from_numpy(np.array(val_y_[:, 0]))
-        out = model(inp.to(device).float())
-        outputs = nn.Sigmoid()(out).cpu().detach().numpy().reshape(-1).round()
-        targets = labs.numpy().reshape(-1)
-        ACC = np.mean((outputs == targets))
-        val_loss.append(ACC)
-
-        if epoch % print_nb == 0:
-            print(
-                f"Epoch: {epoch}/{num_epochs_}\nMSE = [train loss mean : {np.mean(train_loss[-print_nb:]): .08f}] , [val loss mean: {np.mean(val_loss[-print_nb:]): .08f}, MSE (last){ACC*100: .05f}%]"
-            )
-            print(
-                f"nb 0: {len(outputs[outputs == 0])}, nb 1: {len(outputs[outputs == 1])}"
-            )
-
-    return train_loss, val_loss
-
-
-def train_aux_trend(
-    model_trend,
-    model,
-    train_x_,
-    train_y_,
-    val_x_,
-    val_y_,
-    batch_size_=256,
-    num_epochs_=1000,
-    lr_=0.0001,
-    device_="cpu",
-):
-
-    train_data = TensorDataset(torch.from_numpy(train_x_), torch.from_numpy(train_y_))
-    train_loader = DataLoader(
-        train_data, shuffle=True, batch_size=batch_size_, drop_last=True
-    )
-
-    device = device_
-    print_nb = int(num_epochs_ / 5)
-
-    criterion = [
-        nn.MSELoss(),
-        nn.MSELoss(),
-        nn.MSELoss(),
-        nn.MSELoss(),
-        nn.MSELoss(),
-        nn.MSELoss(),
-        nn.MSELoss(),
-    ]
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr_)
-
-    train_loss = []
-    val_loss = []
-
-    aux_loss = [[], [], [], [], [], []]
-    aux_loss_val = [[], [], [], [], [], []]
-
-    model_trend.eval()
-
-    for epoch in tqdm.tqdm(range(1, num_epochs_ + 1)):
-
-        avg_loss = 0.0
-        avg_loss_aux = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
-
-        model.train()
-        for x, label in train_loader:
-            out1 = model_trend(x.to(device).float())
-
-            outputs = model(x.to(device).float(), nn.Sigmoid()(out1))
-
-            optimizer.zero_grad()
-            for i in range(len(aux_loss) - 1):
-                loss = criterion[i](
-                    outputs[i], label.to(device).float()[:, i].unsqueeze(1)
-                )
-                avg_loss_aux[i] += loss.item()
-                loss.backward(retain_graph=True)
-
-            loss = criterion[-2](
-                outputs[-2], label.to(device).float()[:, 0].unsqueeze(1)
-            )
-            avg_loss_aux[-1] += loss.item()
-            loss.backward(retain_graph=True)
-
-            loss = criterion[-1](
-                outputs[-1], label.to(device).float()[:, 0].unsqueeze(1)
-            )
-            avg_loss += loss.item()
-            loss.backward()
-            optimizer.step()
-
-        train_loss.append(avg_loss / (len(train_loader)))
-        for i in range(len(aux_loss)):
-            aux_loss[i].append(avg_loss_aux[i] / len(train_loader))
-
-        model.eval()
-        inp = torch.from_numpy(np.array(val_x_))
-        labs = torch.from_numpy(np.array(val_y_[:, 0]))
-        out1 = model_trend(inp.to(device).float())
-        out = model(inp.to(device).float(), nn.Sigmoid()(out1))
-        outputs = out[-1].cpu().detach().numpy().reshape(-1)
-        targets = labs.numpy().reshape(-1)
-        MSE = np.mean((outputs - targets) ** 2)
-        val_loss.append(MSE)
-
-        for i in range(len(aux_loss) - 1):
-            labs = torch.from_numpy(np.array(val_y_[:, i]))
-            outputs = out[i].cpu().detach().numpy().reshape(-1)
-            targets = labs.numpy().reshape(-1)
-            aux_loss_val[i].append(np.mean((outputs - targets) ** 2))
-
-        labs = torch.from_numpy(np.array(val_y_[:, 0]))
-        outputs = out[-2].cpu().detach().numpy().reshape(-1)
-        targets = labs.numpy().reshape(-1)
-        aux_loss_val[-1].append(np.mean((outputs - targets) ** 2))
-
-        if epoch % print_nb == 0 and verbose == 1:
-            print(
-                f"Epoch: {epoch}/{num_epochs_}\nMSE = [train loss mean : {np.mean(train_loss[-print_nb:]): .08f}] , [val loss mean: {np.mean(val_loss[-print_nb:]): .08f}, MSE (last){MSE*100: .05f}%]"
-            )
-            print(
-                f"Aux loss train: [close: {np.mean(aux_loss[0][-print_nb:]): 0.05f} ], [SMI: {np.mean(aux_loss[1][-print_nb:]): 0.05f} ], [SP500: {np.mean(aux_loss[2][-print_nb:]): 0.05f} ], [bondCH: {np.mean(aux_loss[3][-print_nb:]): 0.05f} ] [bondUS: {np.mean(aux_loss[4][-print_nb:]): 0.05f} ] [Gru base: {np.mean(aux_loss[5][-print_nb:]): 0.05f}]"
-            )
-            print(
-                f"Aux loss val:   [close: {np.mean(aux_loss_val[0][-print_nb:]): 0.05f} ], [SMI: {np.mean(aux_loss_val[1][-print_nb:]): 0.05f} ], [SP500: {np.mean(aux_loss_val[2][-print_nb:]): 0.05f} ], [bondCH: {np.mean(aux_loss_val[3][-print_nb:]): 0.05f} ] [bondUS: {np.mean(aux_loss_val[4][-print_nb:]): 0.05f} ] [Gru base: {np.mean(aux_loss_val[5][-print_nb:]): 0.05f}]"
-            )
-
-    return train_loss, val_loss, aux_loss, aux_loss_val
-
-
-def train_AE(
-    model,
-    train_x_,
-    train_y_,
-    val_x_,
-    val_y_,
-    batch_size_=256,
-    num_epochs_=1000,
-    lr_=0.0001,
-    device_="cpu",
-):
-
-    train_data = TensorDataset(torch.from_numpy(train_x_), torch.from_numpy(train_y_))
-    train_loader = DataLoader(
-        train_data, shuffle=True, batch_size=batch_size_, drop_last=True
-    )
-
-    device = device_
-    print_nb = int(num_epochs_ / 5)
-
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr_)
-
-    train_loss = []
-    val_loss = []
-
-    for epoch in tqdm.tqdm(range(1, num_epochs_ + 1)):
-
-        avg_loss = 0.0
-        model.train()
-        for x, label in train_loader:
-
-            outputs = model(x.to(device).float())
-            optimizer.zero_grad()
-
-            loss = criterion(
-                outputs,
-                torch.cat(
-                    (x.to(device).float(), label.to(device).float().reshape(-1, 5, 1)),
-                    axis=2,
-                ),
-            )  # torch.cat((x.to(device).float(), label.to(device).float().reshape(-1,5,1)), axis=2)
-            avg_loss += loss.item()
-            loss.backward()
-            optimizer.step()
-
-        train_loss.append(avg_loss / (len(train_loader)))
-
-        model.eval()
-        inp = torch.from_numpy(np.array(val_x_))
-        labs = torch.from_numpy(np.array(val_y_))
-
-        outputs = model(inp.to(device).float())
-
-        outputs = outputs.cpu().detach().numpy()
-
-        MSE = np.mean(
-            (
-                outputs
-                - torch.cat((inp.float(), labs.float().reshape(-1, 5, 1)), axis=2)
-                .cpu()
-                .detach()
-                .numpy()
-            )
-            ** 2
-        )  # torch.cat((inp.float(), labs.float().reshape(-1,5,1)), axis=2)
-
-        val_loss.append(MSE)
-
-        if epoch % print_nb == 0:
-            print(
-                f"Epoch: {epoch}/{num_epochs_}\nMSE = [train loss mean : {np.mean(train_loss[-print_nb:]): .08f}] , [val loss mean: {np.mean(val_loss[-print_nb:]): .08f}, MSE (last){MSE*100: .05f}"
-            )
-
-    return train_loss, val_loss
-
-
-def train_AEandGRU(
-    model_AE,
-    model,
-    train_x_,
-    train_y_,
-    val_x_,
-    val_y_,
-    seq_len=10,
-    batch_size_=256,
-    num_epochs_=1000,
-    lr_=0.0001,
-    device_="cpu",
-):
-
-    train_data = TensorDataset(torch.from_numpy(train_x_), torch.from_numpy(train_y_))
-    train_loader = DataLoader(
-        train_data, shuffle=True, batch_size=batch_size_, drop_last=True
-    )
-
-    device = device_
-    print_nb = int(num_epochs_ / 5)
-
-    criterion = nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=lr_)
-
-    train_loss = []
-    val_loss = []
-
-    model_AE.eval()
-
-    for epoch in tqdm.tqdm(range(1, num_epochs_ + 1)):
-
-        avg_loss = 0.0
-
-        model.train()
-        for x, label in train_loader:
-
-            x = model_AE(x.to(device).float())
-            x = np.swapaxes(x.cpu().detach().numpy(), 2, 1)  # x.reshape(-1, seq_len,1)
-
-            optimizer.zero_grad()
-            outputs = model(torch.from_numpy(x).to(device).float())
-
-            loss = criterion(outputs, label.to(device).float()[:, 0].unsqueeze(1))
-            avg_loss += loss.item()
-            loss.backward()
-            optimizer.step()
-
-        train_loss.append(avg_loss / (len(train_loader)))
-
-        model.eval()
-        inp = torch.from_numpy(np.array(val_x_))
-        labs = torch.from_numpy(np.array(val_y_[:, 0]))
-
-        out1 = model_AE(inp.to(device).float())
-        out1 = np.swapaxes(out1.cpu().detach().numpy(), 2, 1)
-        out = model(torch.from_numpy(out1).to(device).float())
-        outputs = out.cpu().detach().numpy().reshape(-1)
-        targets = labs.numpy().reshape(-1)
-        MSE = np.mean((outputs - targets) ** 2)
-        val_loss.append(MSE)
-
-        if epoch % print_nb == 0:
-            print(
-                f"Epoch: {epoch}/{num_epochs_}\nMSE = [train loss mean : {np.mean(train_loss[-print_nb:]): .08f}] , [val loss mean: {np.mean(val_loss[-print_nb:]): .08f}, MSE (last){MSE*100: .05f}%]"
-            )
-
-    return train_loss, val_loss
-
-
 def smooth_loss(val, chunksize=100):
     mean_list = []
     for i in range(chunksize, len(val), chunksize):
         mean_list.append(np.mean(val[i - chunksize : i]))
     return mean_list
-
-
-def evaluate_AE(model, x_, y_, device="cpu"):
-    model.eval()
-
-    inp = torch.from_numpy(np.array(x_))
-    labs = torch.from_numpy(np.array(y_))
-
-    dec_outputs = model(inp.to(device).float())
-    # outputs = outputs.cpu().detach().numpy().reshape(-1)
-    dec_outputs = dec_outputs.cpu().detach().numpy()
-    # targets = labs.numpy().reshape(-1)
-
-    # MSE = np.mean((outputs - targets) ** 2)
-    MSE_dec = np.mean(
-        (
-            dec_outputs
-            - torch.cat((inp.float(), labs.float().reshape(-1, 5, 1)), axis=2)
-            .cpu()
-            .detach()
-            .numpy()
-        )
-        ** 2
-    )  # torch.cat((inp.float(), labs.float().reshape(-1,5,1)), axis=2)
-
-    # print("MSE: {}%".format(MSE * 100))
-    print("MSE AE: {}%".format(MSE_dec * 100))
-
-    return dec_outputs  # outputs, targets,dec_outputs, MSE, MSE_dec
-
-
-def evaluate_AEandGRU(model_AE, model, x_, y_, seq_len=10, device="cpu"):
-    inp = torch.from_numpy(np.array(x_))
-    labs = torch.from_numpy(np.array(y_[:, 0]))
-
-    dec_outputs = model_AE(inp.to(device).float())
-    dec_outputs = np.swapaxes(dec_outputs.cpu().detach().numpy(), 2, 1)
-    outputs = model(torch.from_numpy(dec_outputs).to(device).float())
-    outputs = outputs.cpu().detach().numpy().reshape(-1)
-
-    targets = labs.numpy().reshape(-1)
-
-    MSE = np.mean((outputs - targets) ** 2)
-
-    print("MSE: {}%".format(MSE * 100))
-
-    return outputs, targets, MSE
 
 
 def evaluate_aux_trend(model_trend, model, x_, y_, device="cpu"):
