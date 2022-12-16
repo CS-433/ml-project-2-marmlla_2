@@ -62,7 +62,7 @@ def train(
         val_loss.append(MSE)
 
         # hearly stopping
-        if len(val_loss) > 100 and np.mean(val_loss[-50:]) < np.mean(val_loss[-25:]):
+        if len(val_loss) > 51 and np.mean(val_loss[-50:]) < np.mean(val_loss[-25:]):
             print(np.mean(val_loss[-50:]), "<", np.mean(val_loss[-25:]))
             print(
                 f"Epoch: {epoch}/{num_epochs_}\nMSE = [train loss mean : {np.mean(train_loss[-print_nb:]): .08f}] , [val loss mean: {np.mean(val_loss[-print_nb:]): .08f}, MSE (last){MSE*100: .05f}%]"
@@ -282,15 +282,15 @@ def evauate_strategy(
     sell = []
     sell_t = []
 
-    CHF = 1
+    CHF = 5
     portfolio_list = []
     USD = 0
-    tax = 0.9985
+
     trade = False
 
     for i in range(len(S) - 1):
 
-        if pred_S[i + 1] > S[i]:
+        if pred_S[i+1] > S[i]:
             if trade == False:
 
                 CHF = CHF - USD * S[i] - (1 - tax) * USD * S[i]
@@ -377,9 +377,14 @@ def evauate_strategy(
         plt.legend(fontsize=20)
 
         plt.xlabel("Time", fontsize=20)
+        plt.savefig("result.svg")
         plt.show()
 
     p = np.array(portfolio_list)
+    print(
+        f"gain = {(portfolio_list[-1] / portfolio_list[0] - 1) * 100:0.02f}%",
+    )
+
     average_ret = np.mean((p[1:] / p[:-1] - 1)) * 100
     return average_ret
 
