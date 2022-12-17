@@ -282,7 +282,7 @@ def evauate_strategy(
     sell = []
     sell_t = []
 
-    CHF = 5
+    CHF = 1
     portfolio_list = []
     USD = 0
 
@@ -290,7 +290,7 @@ def evauate_strategy(
 
     for i in range(len(S) - 1):
 
-        if pred_S[i+1] > S[i]:
+        if pred_S[i + 1] > S[i]:
             if trade == False:
 
                 CHF = CHF - USD * S[i] - (1 - tax) * USD * S[i]
