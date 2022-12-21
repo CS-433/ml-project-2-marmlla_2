@@ -1,6 +1,6 @@
-# Forcast Exchange Rate
+# Forecasting Exchange Rates
 
-The haim of this project is to forcast daily USD/CHF exchange rate thanks to historical data of: 
+The aim of this project is to forcast daily USD/CHF exchange rate thanks to historical data of: 
 - past USD/CHF exchange rate.
 - CHF/ other currency exchange rate.
 - CHF Bonds (Interest rate)
