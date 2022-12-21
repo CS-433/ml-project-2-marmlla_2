@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class Auto_Encoder(nn.Module):
@@ -334,3 +335,77 @@ class GRU_trend(nn.Module):
         # out = self.fc_2(self.dropout2(self.relu(self.fc2_bn(out))))
 
         return out
+
+
+class ResUNet(nn.Module):
+    def __init__(self):
+        super(ResUNet, self).__init__()
+
+        self.conv = nn.Conv1d(36, 32, 3, padding=1)
+
+        self.block1 = nn.Sequential(
+            ResBlock(32, 3),
+            nn.Conv1d(32, 64, 3, padding=1),
+            nn.BatchNorm1d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool1d(2),
+        )
+
+        self.block2 = ResBlock(64, 3)
+
+        self.block3 = nn.Sequential(
+            ResBlock(64, 3),
+            nn.ConvTranspose1d(64, 32, 3, stride=2, padding=1, output_padding=1),
+            nn.BatchNorm1d(32),
+            nn.ReLU(inplace=True),
+        )
+
+        self.block4 = nn.Sequential(
+            nn.Conv1d(64, 32, 3, padding=1),
+            nn.BatchNorm1d(32),
+            nn.ReLU(inplace=True),
+            ResBlock(32, 3),
+            nn.Conv1d(32, 36, 3, padding=1),
+            nn.Sigmoid(),
+        )
+        self._init_weights()
+
+    def _init_weights(self):
+        for m in self.modules():
+            if isinstance(m, nn.ConvTranspose2d) or isinstance(m, nn.Conv1d):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+
+    def forward(self, x):
+        x = self.conv(x)
+        pool1 = self.block1(x)
+        latent = self.block2(pool1)
+        up1 = self.block3(latent)
+        concat = torch.cat((up1, x), dim=1)
+        return self.block4(concat)
+
+
+class ResBlock(nn.Module):
+    def __init__(self, nb_channels, kernel_size):
+        super().__init__()
+        self.conv1 = nn.Conv1d(
+            nb_channels, nb_channels, kernel_size, padding=(kernel_size - 1) // 2
+        )
+        self.bn1 = nn.BatchNorm1d(nb_channels)
+        self.conv2 = nn.Conv1d(
+            nb_channels, nb_channels, kernel_size, padding=(kernel_size - 1) // 2
+        )
+        self.bn2 = nn.BatchNorm1d(nb_channels)
+
+        for m in self.modules():
+            if isinstance(m, nn.Conv1d):
+                nn.init.kaiming_normal_(m.weight.data)
+                m.bias.data.zero_()
+
+    def forward(self, x):
+        y = self.bn1(self.conv1(x))
+        y = F.relu(y)
+        y = self.bn2(self.conv2(y))
+        y += x
+        y = F.relu(y)
+        return y

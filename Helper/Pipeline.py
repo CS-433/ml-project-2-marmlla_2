@@ -29,7 +29,7 @@ def train(
 
     train_data = TensorDataset(torch.from_numpy(train_x_), torch.from_numpy(train_y_))
     train_loader = DataLoader(
-        train_data, shuffle=False, batch_size=batch_size_, drop_last=False
+        train_data, shuffle=False, batch_size=batch_size_, drop_last=True
     )
 
     device = device_
@@ -98,7 +98,7 @@ def train_regularized(
         torch.from_numpy(train_y_[:-1]),
     )
     train_loader = DataLoader(
-        train_data, shuffle=True, batch_size=batch_size_, drop_last=False
+        train_data, shuffle=True, batch_size=batch_size_, drop_last=True
     )
 
     device = device_
@@ -290,17 +290,11 @@ def evauate_strategy(
 
     for i in range(len(S) - 1):
 
-        if pred_S[i + 1] > S[i]:
+        if pred_S[i + 1] < S[i]:
             if trade == False:
 
                 CHF = CHF - USD * S[i] - (1 - tax) * USD * S[i]
                 USD = 0
-                if verbose == 1:
-                    print(
-                        "gain = ", ((USD * tax / S[i]) - 1) * 100, "% [ TIME: ", i, " ]"
-                    )
-                    print("Portfolio value = ", CHF + USD * S[i])
-                    print("-- -- -- -- -- -- -- -- -- -- -- -- -- -- ")
 
                 USD += 1 * tax / S[i]
                 CHF -= 1
@@ -317,17 +311,6 @@ def evauate_strategy(
 
                 CHF += USD * S[i] * tax
                 USD = 0
-                if verbose == 1:
-                    print(
-                        "gain = ",
-                        ((USD * S[i] * tax) - 1) * 100,
-                        "%",
-                        "[ TIME: ",
-                        i,
-                        " ]",
-                    )
-                    print("Portfolio value = ", CHF + USD * S[i])
-                    print("-- -- -- -- -- -- -- -- -- -- -- -- -- -- ")
 
                 CHF += 1 * tax
                 USD += 1 / S[i]
@@ -447,12 +430,6 @@ def evauate_strategy_trend(
 
                 CHF = CHF - USD * S[i] - (1 - tax) * USD * S[i]
                 USD = 0
-                if verbose == 1:
-                    print(
-                        "gain = ", ((USD * tax / S[i]) - 1) * 100, "% [ TIME: ", i, " ]"
-                    )
-                    print("Portfolio value = ", CHF + USD * S[i])
-                    print("-- -- -- -- -- -- -- -- -- -- -- -- -- -- ")
 
                 USD += 1 * tax / S[i]
                 CHF -= 1
@@ -469,17 +446,6 @@ def evauate_strategy_trend(
 
                 CHF += USD * S[i] * tax
                 USD = 0
-                if verbose == 1:
-                    print(
-                        "gain = ",
-                        ((USD * S[i] * tax) - 1) * 100,
-                        "%",
-                        "[ TIME: ",
-                        i,
-                        " ]",
-                    )
-                    print("Portfolio value = ", CHF + USD * S[i])
-                    print("-- -- -- -- -- -- -- -- -- -- -- -- -- -- ")
 
                 CHF += 1 * tax
                 USD += 1 / S[i]

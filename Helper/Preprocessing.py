@@ -142,13 +142,13 @@ def generate_dataset(
         norm.append((min_test, max_test))
 
     # add trend feature to help the model
-    train_x_fin, train_y_fin = add_label_data(train_x_fin, train_y_fin)
-    val_x_fin, val_y_fin = add_label_data(val_x_fin, val_y_fin)
-    test_x_fin, test_y_fin = add_label_data(test_x_fin, test_y_fin)
+    train_x_fin, train_y_fin = add_label_data(train_x_fin, train_y_fin, span_trend_)
+    val_x_fin, val_y_fin = add_label_data(val_x_fin, val_y_fin, span_trend_)
+    test_x_fin, test_y_fin = add_label_data(test_x_fin, test_y_fin, span_trend_)
     # shift price of T x extract trend label [trend_1, ..., trend_D]
-    price_train = price_train[train_x_fin.shape[1] :]
-    price_val = price_val[train_x_fin.shape[1] :]
-    price_test = price_test[train_x_fin.shape[1] :]
+    price_train = price_train[train_x_fin.shape[1] + span_trend_ - 1 :]
+    price_val = price_val[train_x_fin.shape[1] + span_trend_ - 1 :]
+    price_test = price_test[train_x_fin.shape[1] + span_trend_ - 1 :]
 
     if verbose == 1:
         print(
@@ -201,7 +201,7 @@ def min_max_norm(x_, y_, norm_output_=True):
 
 
 def min_max_norm_inverse(
-    x_, tuple_min_max_, span_=6
+    x_, tuple_min_max_, span_=9
 ):  # TODO: SPAN TRY TO REMOVE AND ADJUST GENERATE DATASET
 
     min = tuple_min_max_[0]
@@ -212,7 +212,7 @@ def min_max_norm_inverse(
     return inv
 
 
-def add_label_data(df_x, df_y):
+def add_label_data(df_x, df_y, span):
 
     X_ = np.zeros((df_x.shape[0], df_x.shape[1], df_x.shape[2] * 2))
     c = 0
@@ -222,11 +222,11 @@ def add_label_data(df_x, df_y):
             X_[:, :, i] = df_x[:, :, c]
         else:
             # add trend feature trend: [trend_1, ..., trend_D]
-            for j in range(df_x.shape[1], len(X_)):
-                X_[j, :, i] = df_y[j - df_x.shape[1] : j, c]
+            for j in range(df_x.shape[1] + span - 1, len(X_)):
+                X_[j, :, i] = df_y[j - df_x.shape[1] - span + 1 : j - span + 1, c]
             c += 1
 
-    return X_[df_x.shape[1] :], df_y[df_x.shape[1] :]
+    return X_[df_x.shape[1] + span - 1 :], df_y[df_x.shape[1] + span - 1 :]
 
 
 def get_log_ret(df_):
